@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>WhatsApp API - Dokumentasi</title>
+  <style>
+    body{font-family:Segoe UI,Arial,Helvetica,sans-serif;line-height:1.6;color:#222;margin:24px}
+    header{margin-bottom:20px}
+    h1{font-size:24px}
+    pre{background:#f6f8fa;border:1px solid #e1e4e8;padding:12px;overflow:auto}
+    code{background:#f1f1f1;padding:2px 4px;border-radius:4px}
+    .section{margin-bottom:18px}
+    table{border-collapse:collapse;width:100%;margin-top:8px}
+    th,td{border:1px solid #ddd;padding:8px;text-align:left}
+    th{background:#f3f4f6}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>WhatsApp API (Simple) — Dokumentasi</h1>
+    <p>File: <code>server.js</code> — Endpoint untuk mengirim pesan, mengambil QR, restore session, dan restart client.</p>
+  </header>
+
+  <section class="section">
+    <h2>Server</h2>
+    <p>Base URL: <code>http://localhost:3000</code> (atau gunakan environment <code>PORT</code>).</p>
+  </section>
+
+  <section class="section">
+    <h2>Daftar Endpoint</h2>
+    <table>
+      <thead>
+        <tr><th>Method</th><th>Path</th><th>Deskripsi</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>GET</td><td>/status</td><td>Cek apakah client WhatsApp sudah siap. Mengembalikan <code>{ "ready": true|false }</code>.</td></tr>
+        <tr><td>GET</td><td>/qr</td><td>Ambil QR (data URL PNG) jika client belum terautentikasi; atau pesan bahwa sudah authenticated.</td></tr>
+        <tr><td>POST</td><td>/send</td><td>Kirim pesan ke nomor. Body JSON: <code>{ "number": "62812...", "message": "..." }</code>.</td></tr>
+        <tr><td>POST</td><td>/session/restore</td><td>Restore/import session object. Body JSON: <code>{ "session": { ... } }</code>. Menyimpan ke <code>session.json</code> dan reinitialize client.</td></tr>
+          <tr><td>POST</td><td>/client/restart</td><td>Hancurkan client lama lalu buat client baru (tanpa session). Jika tidak ada session, akan menghasilkan QR baru.</td></tr>
+          <tr><td>POST</td><td>/send-file</td><td>Kirim file PDF. Mendukung multipart form upload (`file` field), JSON `fileUrl`, atau JSON `fileBase64` (hanya PDF diterima).</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="section">
+    <h2>Contoh penggunaan</h2>
+    <h3>1) Cek status</h3>
+    <pre><code>curl http://localhost:3000/status</code></pre>
+
+    <h3>2) Ambil QR (paste hasil qr data url ke browser)</h3>
+    <pre><code>curl http://localhost:3000/qr</code></pre>
+
+    <h3>3) Mengirim pesan</h3>
+    <p>Gunakan nomor internasional tanpa tanda <code>+</code>. Contoh:</p>
+    <pre><code>curl -X POST http://localhost:3000/send \
+  -H "Content-Type: application/json" \
+  -d '{"number":"628123456789","message":"Halo dari API"}'
+    </code></pre>
+
+    <p>Contoh PowerShell:</p>
+    <pre><code>$body = @{ number = '628123456789'; message = 'Halo dari API' } | ConvertTo-Json
+Invoke-RestMethod -Uri http://localhost:3000/send -Method Post -Body $body -ContentType 'application/json'</code></pre>
+
+    <h3>4) Restore session (import dari mesin lain)</h3>
+    <pre><code>$session = Get-Content .\my-session.json | ConvertFrom-Json
+Invoke-RestMethod -Uri http://localhost:3000/session/restore -Method Post -Body (@{ session = $session } | ConvertTo-Json) -ContentType 'application/json'</code></pre>
+
+    <h3>5) Restart client</h3>
+    <pre><code>curl -X POST http://localhost:3000/client/restart
+# or PowerShell
+Invoke-RestMethod -Uri http://localhost:3000/client/restart -Method Post</code></pre>
+
+    <h3>6) Mengirim file PDF</h3>
+    <p>Contoh multipart upload (curl):</p>
+    <pre><code>curl -X POST http://localhost:3000/send-file \
+  -F "file=@/path/to/doc.pdf" \
+  -F "number=089530518554" \
+  -F "caption=Dokumen PDF"</code></pre>
+
+    <p>Contoh JSON dengan <code>fileUrl</code>:</p>
+    <pre><code>curl -X POST http://localhost:3000/send-file -H "Content-Type: application/json" -d '{"number":"628123456789","fileUrl":"https://example.com/doc.pdf","caption":"Dokumen"}'</code></pre>
+  </section>
+
+  <section class="section">
+    <h2>Alur otentikasi & session</h2>
+    <ol>
+      <li>Jika tidak ada <code>session.json</code> yang valid, buka <code>/qr</code> dan scan QR menggunakan WhatsApp di ponsel.</li>
+      <li>Setelah scan sukses server akan menyimpan session object ke <code>session.json</code>.</li>
+      <li>Di startup berikutnya server akan membaca <code>session.json</code> dan menginisialisasi client tanpa perlu scan ulang.</li>
+      <li>Gunakan <code>/session/restore</code> untuk mengimpor session dari mesin lain.</li>
+    </ol>
+  </section>
+
+  <section class="section">
+    <h2>Catatan operasional</h2>
+    <ul>
+      <li>Sebelum membuat client baru, server akan memanggil <code>client.destroy()</code> pada instance lama sehingga tidak ada banyak proses browser yang berjalan.</li>
+      <li>Jika chromium/Chrome gagal diluncurkan di Windows, atur opsi Puppeteer <code>executablePath</code> ke path chrome yang valid, atau jalankan non-headless untuk debugging.</li>
+      <li>Jaga <code>session.json</code> tetap aman; siapa pun yang memiliki file itu bisa mengakses akun WhatsApp yang terhubung.</li>
+    </ul>
+  </section>
+
+  <section class="section">
+    <h2>File penting di proyek</h2>
+    <ul>
+      <li><code>server.js</code> — implementasi API</li>
+      <li><code>package.json</code> — skrip & dependencies</li>
+      <li><code>session.json</code> — (otomatis dibuat) session export/import</li>
+      <li><code>README.md</code> — instruksi singkat</li>
+    </ul>
+  </section>
+
+  <footer style="margin-top:28px;color:#555;font-size:13px">
+    <p>Butuh contoh client Node atau webhook untuk pesan masuk? Beri tahu saya, saya bisa tambahkan contoh kode.</p>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,26 @@
+version: '3.8'
+
+# Override useful for local development when you want a headful browser
+services:
+  app:
+    environment:
+      HEADLESS: "false"
+      PUPPETEER_DEVTOOLS: "true"
+      # Pass through DISPLAY from host (set on your host or in .env)
+      DISPLAY: ${DISPLAY:-:0}
+      PUPPETEER_ARGS: "--no-sandbox,--disable-setuid-sandbox,--disable-gpu"
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+    # On Linux (Ubuntu) it's helpful to run the container as the host user
+    # so X11 and file permissions work correctly. You can set LOCAL_UID and LOCAL_GID
+    # in your environment before starting compose (see instructions).
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    # Mount Xauthority to allow the container to connect to the X server
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      - ${XAUTHORITY:-$HOME/.Xauthority}:${XAUTHORITY:-/home/node/.Xauthority}:ro
+    devices:
+      - /dev/dri:/dev/dri
+    # If your Docker host requires additional privileges for GUI, you may add:
+    # cap_add:
+    #   - SYS_ADMIN

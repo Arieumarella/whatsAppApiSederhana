@@ -1,0 +1,6 @@
+node_modules/
+session/
+.wwebjs_cache/
+/*.log
+session.json
+.env

@@ -1,0 +1,121 @@
+{
+  "info": {
+    "name": "WhatsApp API Simple",
+    "_postman_id": "whatsapp-api-simple-collection",
+    "description": "Postman collection untuk WhatsApp API sederhana",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "GET /status",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/status",
+          "host": ["{{baseUrl}}"],
+          "path": ["status"]
+        },
+        "description": "Cek apakah WhatsApp client sudah siap"
+      }
+    },
+    {
+      "name": "GET /qr",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/qr",
+          "host": ["{{baseUrl}}"],
+          "path": ["qr"]
+        },
+        "description": "Ambil QR (data URL) untuk discan jika belum terautentikasi"
+      }
+    },
+    {
+      "name": "POST /send",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"number\": \"628123456789\",\n  \"message\": \"Halo dari API\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/send",
+          "host": ["{{baseUrl}}"],
+          "path": ["send"]
+        },
+        "description": "Kirim pesan ke nomor (format internasional tanpa +)"
+      }
+    },
+    {
+      "name": "POST /session/restore",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"session\": { /* paste session object here */ }\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/session/restore",
+          "host": ["{{baseUrl}}"],
+          "path": ["session","restore"]
+        },
+        "description": "Restore session object; server menyimpan ke session.json dan reinitialize client"
+      }
+    },
+    {
+      "name": "POST /client/restart",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/client/restart",
+          "host": ["{{baseUrl}}"],
+          "path": ["client","restart"]
+        },
+        "description": "Hancurkan client lama lalu buat client baru (tanpa session)"
+      }
+    }
+    ,
+    {
+      "name": "POST /send-file (multipart)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "file", "type": "file", "src": "" },
+            { "key": "number", "value": "089530518554", "type": "text" },
+            { "key": "caption", "value": "Dokumen PDF", "type": "text" }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/send-file",
+          "host": ["{{baseUrl}}"],
+          "path": ["send-file"]
+        },
+        "description": "Kirim PDF via multipart form upload (field 'file')"
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    }
+  ]
+}

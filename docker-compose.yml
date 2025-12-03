@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    env_file:
+      - .env
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./:/usr/src/app:cached
+    restart: unless-stopped
+    # Use host networking if you prefer direct access to display/socket (optional)
+    # network_mode: "host"
