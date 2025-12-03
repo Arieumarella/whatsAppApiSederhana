@@ -1,0 +1,53 @@
+# Dockerfile.novnc - Node + Chromium + Xvfb + x11vnc + noVNC
+FROM node:20-bullseye-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+WORKDIR /usr/src/app
+
+# Install system deps, Chromium, Xvfb, fluxbox, x11vnc, python3-pip
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    chromium \
+    xvfb \
+    x11vnc \
+    fluxbox \
+    python3-pip \
+    git \
+    wget \
+    supervisor \
+    fonts-liberation \
+    libasound2 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libx11-xcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libgbm1 \
+    libnss3 \
+    libxss1 \
+    libsecret-1-0 \
+    libgtk-3-0 \
+    libpangocairo-1.0-0 \
+  && pip3 install --no-cache-dir websockify
+
+# Copy package manifests first for caching
+COPY package*.json ./
+RUN npm ci --only=production || npm install --production
+
+# Copy app source
+COPY . .
+
+# Add startup script
+COPY start-novnc.sh /usr/local/bin/start-novnc.sh
+RUN chmod +x /usr/local/bin/start-novnc.sh
+
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV HEADLESS=false
+ENV PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox
+
+EXPOSE 5000 6080
+
+CMD ["/usr/local/bin/start-novnc.sh"]
