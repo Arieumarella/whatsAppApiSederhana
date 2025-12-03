@@ -17,8 +17,11 @@ services:
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
       - ${XAUTHORITY:-/root/.Xauthority}:/home/node/.Xauthority:ro
-    devices:
-      - /dev/dri:/dev/dri
+    # GPU device mapping disabled by default because many servers (VPS) don't expose /dev/dri.
+    # If your host has a DRM device and you want to pass it to the container for hardware
+    # acceleration, uncomment the following lines.
+    # devices:
+    #   - /dev/dri:/dev/dri
     # If your Docker host requires additional privileges for GUI, you may add:
     # cap_add:
     #   - SYS_ADMIN
