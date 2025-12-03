@@ -10,6 +10,6 @@ services:
     ports:
       - "5000:5000"
       - "6080:6080" # noVNC web UI
-    volumes:
-      - ./:/usr/src/app:cached
+    # No host volume mount by default so built image keeps its installed node_modules.
+    # Mounting the project directory from the host would hide node_modules installed during image build.
     restart: unless-stopped

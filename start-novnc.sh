@@ -6,6 +6,16 @@ XVFB_DISPLAY=:1
 SCREEN_RES=${SCREEN_RES:-1280x720x24}
 
 echo "Starting Xvfb on ${XVFB_DISPLAY} with resolution ${SCREEN_RES}"
+# Remove stale X lock files if present (helps when container restarts quickly)
+if [ -f "/tmp/.X1-lock" ]; then
+	echo "Removing stale /tmp/.X1-lock"
+	rm -f /tmp/.X1-lock || true
+fi
+if [ -e "/tmp/.X11-unix/X1" ]; then
+	echo "Removing stale /tmp/.X11-unix/X1"
+	rm -f /tmp/.X11-unix/X1 || true
+fi
+
 Xvfb ${XVFB_DISPLAY} -screen 0 ${SCREEN_RES} &
 XVFB_PID=$!
 
