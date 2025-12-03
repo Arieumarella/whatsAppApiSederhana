@@ -9,8 +9,6 @@ services:
       # Pass through DISPLAY from host (set on your host or in .env)
       DISPLAY: ${DISPLAY:-:0}
       PUPPETEER_ARGS: "--no-sandbox,--disable-setuid-sandbox,--disable-gpu"
-    volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix:ro
     # On Linux (Ubuntu) it's helpful to run the container as the host user
     # so X11 and file permissions work correctly. You can set LOCAL_UID and LOCAL_GID
     # in your environment before starting compose (see instructions).
@@ -18,7 +16,7 @@ services:
     # Mount Xauthority to allow the container to connect to the X server
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
-      - ${XAUTHORITY:-$HOME/.Xauthority}:${XAUTHORITY:-/home/node/.Xauthority}:ro
+      - ${XAUTHORITY:-/root/.Xauthority}:/home/node/.Xauthority:ro
     devices:
       - /dev/dri:/dev/dri
     # If your Docker host requires additional privileges for GUI, you may add:
