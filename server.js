@@ -150,20 +150,68 @@ async function createClient(sessionData = null) {
   client.on("loading_screen", (percent, message) => {
     console.log(`loading_screen: ${percent}% - ${message}`);
     // Sometimes 'ready' event doesn't fire but loading reaches 100%
-    // Try to force ready state if we're at 100% and authenticated
+    // Wait a bit longer and verify client is actually functional
     if (percent === 100 && !isReady) {
-      console.log("Loading reached 100%, checking if client is actually ready...");
-      setTimeout(() => {
+      console.log("Loading reached 100%, waiting 5 seconds to verify client is functional...");
+      setTimeout(async () => {
         if (!isReady && client) {
-          console.log("Forcing ready state since loading completed but ready event didn't fire");
-          isReady = true;
-          qrDataUrl = null;
-          console.log("WhatsApp client ready (forced)");
-          if (client && client.info) {
-            console.log("Client info:", JSON.stringify(client.info));
+          try {
+            // Try to access WhatsApp Web Store to verify it's actually ready
+            const page = await client.pupPage;
+            if (page) {
+              const isWhatsAppReady = await page.evaluate(() => {
+                return typeof window.Store !== 'undefined' && 
+                       typeof window.Store.Chat !== 'undefined';
+              }).catch(() => false);
+              
+              if (isWhatsAppReady) {
+                console.log("WhatsApp Store is loaded, forcing ready state");
+                isReady = true;
+                qrDataUrl = null;
+                console.log("WhatsApp client ready (verified and forced)");
+                if (client && client.info) {
+                  console.log("Client info:", JSON.stringify(client.info));
+                }
+              } else {
+                console.warn("WhatsApp Store not ready yet at 5s, trying again in 10s...");
+                // Retry after 10 more seconds
+                setTimeout(async () => {
+                  if (!isReady && client) {
+                    try {
+                      const retryPage = await client.pupPage;
+                      const retryCheck = await retryPage.evaluate(() => {
+                        return typeof window.Store !== 'undefined' && 
+                               typeof window.Store.Chat !== 'undefined';
+                      }).catch(() => false);
+                      
+                      if (retryCheck) {
+                        console.log("WhatsApp Store loaded on retry, forcing ready");
+                        isReady = true;
+                        qrDataUrl = null;
+                        console.log("WhatsApp client ready (verified after retry)");
+                      } else {
+                        console.error("WhatsApp Store still not ready after 15s total. Client may be broken.");
+                        console.error("Destroying client for recreation...");
+                        try {
+                          client.removeAllListeners && client.removeAllListeners();
+                          await client.destroy();
+                        } catch (e) {}
+                        client = null;
+                        isReady = false;
+                        qrDataUrl = null;
+                      }
+                    } catch (err) {
+                      console.error("Retry verification failed:", err.message);
+                    }
+                  }
+                }, 10000);
+              }
+            }
+          } catch (err) {
+            console.error("Error verifying client readiness:", err.message);
           }
         }
-      }, 2000);
+      }, 5000);
     }
   });
 
