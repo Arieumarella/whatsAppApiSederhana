@@ -42,12 +42,12 @@ RUN git clone --depth 1 https://github.com/novnc/noVNC /usr/src/app/noVNC \
 COPY package*.json ./
 RUN npm ci --only=production || npm install --production
 
-# Copy app source
-COPY . .
-
-# Add startup script
+# Add startup script BEFORE copying app source
 COPY start-novnc.sh /usr/local/bin/start-novnc.sh
 RUN chmod +x /usr/local/bin/start-novnc.sh
+
+# Copy app source (will respect .dockerignore and exclude .env)
+COPY server.js ./
 
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 # Use headless mode by default for better stability in resource-constrained containers

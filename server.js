@@ -4,12 +4,6 @@ const qrcode = require("qrcode");
 const { Client, MessageMedia, NoAuth } = require("whatsapp-web.js");
 const multer = require("multer");
 const fetch = require("node-fetch");
-// Load .env if exists (optional for local dev, not needed in container)
-try {
-  require('dotenv').config();
-} catch (e) {
-  // .env not found or dotenv not installed - this is fine
-}
 
 const app = express();
 app.use(express.json());
