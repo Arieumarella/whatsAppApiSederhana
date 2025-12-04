@@ -50,12 +50,11 @@ COPY start-novnc.sh /usr/local/bin/start-novnc.sh
 RUN chmod +x /usr/local/bin/start-novnc.sh
 
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-ENV HEADLESS=false
+# Use headless mode by default for better stability in resource-constrained containers
+ENV HEADLESS=true
 ENV PUPPETEER_DEVTOOLS=false
-ENV PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage,--disable-accelerated-2d-canvas,--no-first-run,--no-zygote,--disable-gpu
+ENV PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage,--disable-accelerated-2d-canvas,--no-first-run,--no-zygote,--disable-gpu,--single-process
 ENV DISPLAY=:1
-# Enable Puppeteer debug output (optional, can be removed after debugging)
-ENV DEBUG=puppeteer:*
 
 EXPOSE 5000 6080
 

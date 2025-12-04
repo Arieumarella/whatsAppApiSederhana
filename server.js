@@ -168,13 +168,14 @@ async function createClient(sessionData = null) {
     setTimeout(async () => {
       if (!isReady && client) {
         console.error("CRITICAL: Client authenticated but 'ready' event not received after 30s.");
-        console.error("This usually indicates Chromium crashed or is stuck. Attempting recovery...");
+        console.error("Possible causes: Chromium crashed, insufficient memory, or WhatsApp Web issue.");
+        console.error("Attempting automatic recovery by recreating client...");
         
-        // Try to destroy and let user retry
+        // Destroy stuck client
         try {
           client.removeAllListeners && client.removeAllListeners();
           await client.destroy();
-          console.log("Stuck client destroyed. Please refresh /qr to try again.");
+          console.log("Stuck client destroyed.");
         } catch (e) {
           console.error("Failed to destroy stuck client:", e);
         }
@@ -182,6 +183,17 @@ async function createClient(sessionData = null) {
         client = null;
         isReady = false;
         qrDataUrl = null;
+        
+        // Auto-recreate with slight delay
+        console.log("Waiting 3 seconds before recreating client...");
+        await new Promise(r => setTimeout(r, 3000));
+        
+        console.log("Creating new client automatically. QR will be available at /qr");
+        try {
+          await createClient();
+        } catch (err) {
+          console.error("Failed to auto-recreate client:", err);
+        }
       }
     }, 30000);
   });
