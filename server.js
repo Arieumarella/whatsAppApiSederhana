@@ -4,7 +4,12 @@ const qrcode = require("qrcode");
 const { Client, MessageMedia, NoAuth } = require("whatsapp-web.js");
 const multer = require("multer");
 const fetch = require("node-fetch");
-require('dotenv').config();
+// Load .env if exists (optional for local dev, not needed in container)
+try {
+  require('dotenv').config();
+} catch (e) {
+  // .env not found or dotenv not installed - this is fine
+}
 
 const app = express();
 app.use(express.json());
@@ -177,41 +182,7 @@ async function createClient(sessionData = null) {
     } catch (err) {
       console.log("Authenticated event (unable to stringify session)", err);
     }
-    // If LocalAuth is used, it handles persistence automatically. No manual write here.
-    
-    // Workaround: Sometimes in containers, 'ready' event doesn't fire after authenticated.
-    // Set a timeout to check if ready fired; if not, try to recover.
-    setTimeout(async () => {
-      if (!isReady && client) {
-        console.error("CRITICAL: Client authenticated but 'ready' event not received after 15s.");
-        console.error("Possible causes: Chromium crashed, insufficient memory, or WhatsApp Web issue.");
-        console.error("Attempting automatic recovery by recreating client...");
-        
-        // Destroy stuck client
-        try {
-          client.removeAllListeners && client.removeAllListeners();
-          await client.destroy();
-          console.log("Stuck client destroyed.");
-        } catch (e) {
-          console.error("Failed to destroy stuck client:", e);
-        }
-        
-        client = null;
-        isReady = false;
-        qrDataUrl = null;
-        
-        // Auto-recreate with slight delay
-        console.log("Waiting 2 seconds before recreating client...");
-        await new Promise(r => setTimeout(r, 2000));
-        
-        console.log("Creating new client automatically. QR will be available at /qr");
-        try {
-          await createClient();
-        } catch (err) {
-          console.error("Failed to auto-recreate client:", err);
-        }
-      }
-    }, 15000);
+    // Session authenticated successfully
   });
 
   // Additional auth-success listener (if emitted by library)
@@ -263,6 +234,16 @@ async function createClient(sessionData = null) {
 
 // NoAuth mode: do not restore sessions on startup. Client will be created on demand.
 console.log("NoAuth mode: not restoring sessions on startup; client will be created on demand when needed.");
+
+// Periodic health check - log client status every 60 seconds
+setInterval(() => {
+  if (client) {
+    console.log(`[Health Check] Client status - Ready: ${isReady}, Has client: ${!!client}`);
+    if (isReady && client.info) {
+      console.log(`[Health Check] Connected as: ${client.info.pushname || 'Unknown'} (${client.info.wid?.user || 'N/A'})`);
+    }
+  }
+}, 60000);
 
 app.get("/status", (req, res) => {
   res.json({ ready: isReady });
