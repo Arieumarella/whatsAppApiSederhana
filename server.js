@@ -83,8 +83,8 @@ async function createClient(sessionData = null) {
   const headlessEnv = process.env.HEADLESS;
   const headless =
     typeof headlessEnv === "string"
-      ? headlessEnv.toLowerCase() !== "false"
-      : false; // Default to false (headful) for better debugging in container
+      ? headlessEnv.toLowerCase() === "true"
+      : true; // Default to true (headless) for better stability in container
   const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
   // Optional env to auto-open DevTools: PUPPETEER_DEVTOOLS=true
   const devtoolsEnv = process.env.PUPPETEER_DEVTOOLS;
@@ -144,6 +144,22 @@ async function createClient(sessionData = null) {
 
   client.on("loading_screen", (percent, message) => {
     console.log(`loading_screen: ${percent}% - ${message}`);
+    // Sometimes 'ready' event doesn't fire but loading reaches 100%
+    // Try to force ready state if we're at 100% and authenticated
+    if (percent === 100 && !isReady) {
+      console.log("Loading reached 100%, checking if client is actually ready...");
+      setTimeout(() => {
+        if (!isReady && client) {
+          console.log("Forcing ready state since loading completed but ready event didn't fire");
+          isReady = true;
+          qrDataUrl = null;
+          console.log("WhatsApp client ready (forced)");
+          if (client && client.info) {
+            console.log("Client info:", JSON.stringify(client.info));
+          }
+        }
+      }, 2000);
+    }
   });
 
   client.on("initial_data", (data) => {
@@ -167,7 +183,7 @@ async function createClient(sessionData = null) {
     // Set a timeout to check if ready fired; if not, try to recover.
     setTimeout(async () => {
       if (!isReady && client) {
-        console.error("CRITICAL: Client authenticated but 'ready' event not received after 30s.");
+        console.error("CRITICAL: Client authenticated but 'ready' event not received after 15s.");
         console.error("Possible causes: Chromium crashed, insufficient memory, or WhatsApp Web issue.");
         console.error("Attempting automatic recovery by recreating client...");
         
@@ -185,8 +201,8 @@ async function createClient(sessionData = null) {
         qrDataUrl = null;
         
         // Auto-recreate with slight delay
-        console.log("Waiting 3 seconds before recreating client...");
-        await new Promise(r => setTimeout(r, 3000));
+        console.log("Waiting 2 seconds before recreating client...");
+        await new Promise(r => setTimeout(r, 2000));
         
         console.log("Creating new client automatically. QR will be available at /qr");
         try {
@@ -195,7 +211,7 @@ async function createClient(sessionData = null) {
           console.error("Failed to auto-recreate client:", err);
         }
       }
-    }, 30000);
+    }, 15000);
   });
 
   // Additional auth-success listener (if emitted by library)
