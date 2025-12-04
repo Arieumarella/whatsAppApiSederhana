@@ -12,4 +12,6 @@ services:
       - "6080:6080" # noVNC web UI
     # No host volume mount by default so built image keeps its installed node_modules.
     # Mounting the project directory from the host would hide node_modules installed during image build.
+    # Increase shared memory size for Chromium (default 64m is often too small)
+    shm_size: '2gb'
     restart: unless-stopped

@@ -104,7 +104,7 @@ async function createClient(sessionData = null) {
   const headless =
     typeof headlessEnv === "string"
       ? headlessEnv.toLowerCase() !== "false"
-      : true;
+      : false; // Default to false (headful) for better debugging in container
   const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
   // Optional env to auto-open DevTools: PUPPETEER_DEVTOOLS=true
   const devtoolsEnv = process.env.PUPPETEER_DEVTOOLS;
@@ -173,6 +173,15 @@ async function createClient(sessionData = null) {
       console.log("Authenticated event (unable to stringify session)", err);
     }
     // If LocalAuth is used, it handles persistence automatically. No manual write here.
+    
+    // Workaround: Sometimes in containers, 'ready' event doesn't fire after authenticated.
+    // Set a timeout to check if ready fired; if not, log warning.
+    setTimeout(() => {
+      if (!isReady) {
+        console.warn("WARNING: Client authenticated but 'ready' event not received after 30s. Client may be stuck.");
+        console.warn("This can happen in containers with limited resources or network issues.");
+      }
+    }, 30000);
   });
 
   // Additional auth-success listener (if emitted by library)
@@ -184,16 +193,33 @@ async function createClient(sessionData = null) {
     isReady = true;
     qrDataUrl = null;
     console.log("WhatsApp client ready");
+    // Log client info for verification
+    if (client && client.info) {
+      console.log("Client info:", JSON.stringify(client.info));
+    }
   });
 
   client.on("auth_failure", (msg) => {
     console.error("Auth failure:", msg);
+    console.error("This usually means QR scan failed or session is invalid.");
+    isReady = false;
+    qrDataUrl = null;
   });
 
   client.on("disconnected", (reason) => {
     console.log("Client disconnected:", reason);
+    console.log("Reason details:", JSON.stringify(reason));
     isReady = false;
     qrDataUrl = null;
+    // If disconnected unexpectedly, client may need to be recreated
+    if (client) {
+      console.log("Cleaning up disconnected client resources...");
+      try {
+        client.removeAllListeners && client.removeAllListeners();
+      } catch (e) {
+        console.error("Error removing listeners on disconnect:", e);
+      }
+    }
   });
 
   try {

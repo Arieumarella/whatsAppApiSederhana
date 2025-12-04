@@ -50,7 +50,8 @@ RUN chmod +x /usr/local/bin/start-novnc.sh
 
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV HEADLESS=false
-ENV PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox
+ENV PUPPETEER_DEVTOOLS=false
+ENV PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage,--disable-accelerated-2d-canvas,--no-first-run,--no-zygote,--disable-gpu
 
 EXPOSE 5000 6080
 
