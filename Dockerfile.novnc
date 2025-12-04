@@ -11,6 +11,7 @@ RUN apt-get update \
     chromium \
     xvfb \
     x11vnc \
+    x11-utils \
     fluxbox \
     python3-pip \
     git \
@@ -52,6 +53,9 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV HEADLESS=false
 ENV PUPPETEER_DEVTOOLS=false
 ENV PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage,--disable-accelerated-2d-canvas,--no-first-run,--no-zygote,--disable-gpu
+ENV DISPLAY=:1
+# Enable Puppeteer debug output (optional, can be removed after debugging)
+ENV DEBUG=puppeteer:*
 
 EXPOSE 5000 6080
 

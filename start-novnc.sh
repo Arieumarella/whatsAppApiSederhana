@@ -37,11 +37,19 @@ echo "Starting websockify (noVNC bridge) on port 6080 -> localhost:5900"
 websockify --web=/usr/src/app/noVNC 6080 localhost:5900 >/dev/null 2>&1 &
 WEBSOCKIFY_PID=$!
 
-# Slight delay to ensure desktop is ready
-sleep 1
+# Wait longer to ensure X server and desktop are fully ready
+echo "Waiting for X server to be fully ready..."
+sleep 3
+
+# Verify X server is responding
+if xdpyinfo -display ${DISPLAY} >/dev/null 2>&1; then
+  echo "X server is ready on ${DISPLAY}"
+else
+  echo "WARNING: X server may not be fully ready"
+fi
 
 # Now start the Node server
-echo "Starting Node server"
+echo "Starting Node server with DISPLAY=${DISPLAY}"
 node server.js
 
 # If node exits, clean up background processes

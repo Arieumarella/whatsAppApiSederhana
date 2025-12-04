@@ -119,6 +119,15 @@ async function createClient(sessionData = null) {
       puppetArgs: !!(puppetArgs && puppetArgs.length),
     })
   );
+  
+  // Log memory usage for debugging container resource issues
+  const memUsage = process.memoryUsage();
+  console.log("Memory usage (MB):", {
+    rss: Math.round(memUsage.rss / 1024 / 1024),
+    heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024),
+    heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024),
+    external: Math.round(memUsage.external / 1024 / 1024)
+  });
 
   client = new Client(options);
   // Not using LocalAuth when NoAuth strategy is in use
@@ -155,11 +164,24 @@ async function createClient(sessionData = null) {
     // If LocalAuth is used, it handles persistence automatically. No manual write here.
     
     // Workaround: Sometimes in containers, 'ready' event doesn't fire after authenticated.
-    // Set a timeout to check if ready fired; if not, log warning.
-    setTimeout(() => {
-      if (!isReady) {
-        console.warn("WARNING: Client authenticated but 'ready' event not received after 30s. Client may be stuck.");
-        console.warn("This can happen in containers with limited resources or network issues.");
+    // Set a timeout to check if ready fired; if not, try to recover.
+    setTimeout(async () => {
+      if (!isReady && client) {
+        console.error("CRITICAL: Client authenticated but 'ready' event not received after 30s.");
+        console.error("This usually indicates Chromium crashed or is stuck. Attempting recovery...");
+        
+        // Try to destroy and let user retry
+        try {
+          client.removeAllListeners && client.removeAllListeners();
+          await client.destroy();
+          console.log("Stuck client destroyed. Please refresh /qr to try again.");
+        } catch (e) {
+          console.error("Failed to destroy stuck client:", e);
+        }
+        
+        client = null;
+        isReady = false;
+        qrDataUrl = null;
       }
     }, 30000);
   });
