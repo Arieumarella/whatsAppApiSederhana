@@ -89,7 +89,7 @@ async function createClient(sessionData = null) {
   const headless =
     typeof headlessEnv === "string"
       ? headlessEnv.toLowerCase() === "true"
-      : true; // Default to true (headless) for better stability in container
+      : false; // Default false since container shows headless:false anyway
   const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
   // Optional env to auto-open DevTools: PUPPETEER_DEVTOOLS=true
   const devtoolsEnv = process.env.PUPPETEER_DEVTOOLS;
@@ -149,70 +149,6 @@ async function createClient(sessionData = null) {
 
   client.on("loading_screen", (percent, message) => {
     console.log(`loading_screen: ${percent}% - ${message}`);
-    // Sometimes 'ready' event doesn't fire but loading reaches 100%
-    // Wait a bit longer and verify client is actually functional
-    if (percent === 100 && !isReady) {
-      console.log("Loading reached 100%, waiting 5 seconds to verify client is functional...");
-      setTimeout(async () => {
-        if (!isReady && client) {
-          try {
-            // Try to access WhatsApp Web Store to verify it's actually ready
-            const page = await client.pupPage;
-            if (page) {
-              const isWhatsAppReady = await page.evaluate(() => {
-                return typeof window.Store !== 'undefined' && 
-                       typeof window.Store.Chat !== 'undefined';
-              }).catch(() => false);
-              
-              if (isWhatsAppReady) {
-                console.log("WhatsApp Store is loaded, forcing ready state");
-                isReady = true;
-                qrDataUrl = null;
-                console.log("WhatsApp client ready (verified and forced)");
-                if (client && client.info) {
-                  console.log("Client info:", JSON.stringify(client.info));
-                }
-              } else {
-                console.warn("WhatsApp Store not ready yet at 5s, trying again in 10s...");
-                // Retry after 10 more seconds
-                setTimeout(async () => {
-                  if (!isReady && client) {
-                    try {
-                      const retryPage = await client.pupPage;
-                      const retryCheck = await retryPage.evaluate(() => {
-                        return typeof window.Store !== 'undefined' && 
-                               typeof window.Store.Chat !== 'undefined';
-                      }).catch(() => false);
-                      
-                      if (retryCheck) {
-                        console.log("WhatsApp Store loaded on retry, forcing ready");
-                        isReady = true;
-                        qrDataUrl = null;
-                        console.log("WhatsApp client ready (verified after retry)");
-                      } else {
-                        console.error("WhatsApp Store still not ready after 15s total. Client may be broken.");
-                        console.error("Destroying client for recreation...");
-                        try {
-                          client.removeAllListeners && client.removeAllListeners();
-                          await client.destroy();
-                        } catch (e) {}
-                        client = null;
-                        isReady = false;
-                        qrDataUrl = null;
-                      }
-                    } catch (err) {
-                      console.error("Retry verification failed:", err.message);
-                    }
-                  }
-                }, 10000);
-              }
-            }
-          } catch (err) {
-            console.error("Error verifying client readiness:", err.message);
-          }
-        }
-      }, 5000);
-    }
   });
 
   client.on("initial_data", (data) => {
@@ -231,6 +167,15 @@ async function createClient(sessionData = null) {
       console.log("Authenticated event (unable to stringify session)", err);
     }
     // Session authenticated successfully
+    // If ready event doesn't fire within 45s, force ready as last resort
+    setTimeout(() => {
+      if (!isReady && client) {
+        console.warn("Ready event did not fire after 45s. Forcing ready state as last resort.");
+        console.warn("Client may not be fully functional. If send fails, restart with /client/restart");
+        isReady = true;
+        qrDataUrl = null;
+      }
+    }, 45000);
   });
 
   // Additional auth-success listener (if emitted by library)
