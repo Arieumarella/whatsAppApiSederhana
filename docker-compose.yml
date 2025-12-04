@@ -5,8 +5,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.novnc
-    env_file:
-      - .env
+    # Don't load .env in container - it contains Windows-specific paths
+    # Container will use ENV vars set in Dockerfile.novnc
     ports:
       - "5000:5000"
       - "6080:6080" # noVNC web UI
