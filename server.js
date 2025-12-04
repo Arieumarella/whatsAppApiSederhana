@@ -8,29 +8,9 @@ require('dotenv').config();
 
 const app = express();
 app.use(express.json());
-// Enable CORS. If ALLOWED_ORIGINS env is set (comma-separated), restrict to those origins.
-const allowedEnv = process.env.ALLOWED_ORIGINS;
-if (allowedEnv) {
-  const allowed = allowedEnv
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  app.use(
-    cors({
-      origin: function (origin, callback) {
-        // allow requests with no origin (e.g., server-to-server, mobile clients)
-        if (!origin) return callback(null, true);
-        if (allowed.indexOf(origin) !== -1) return callback(null, true);
-        return callback(new Error("Not allowed by CORS"));
-      },
-      credentials: true,
-    })
-  );
-  app.options("*", cors());
-} else {
-  // allow all origins by default (useful for local development)
-  app.use(cors());
-}
+// Enable CORS - allow all origins
+app.use(cors());
+app.options("*", cors());
 
 const PORT = process.env.PORT || 5000;
 
