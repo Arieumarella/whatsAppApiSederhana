@@ -1,20 +1,32 @@
+version: "3.8"
+
 services:
-  app:
+  whatsapp-api:
     build:
       context: .
-      dockerfile: Dockerfile.novnc
-    environment:
-      USE_LOCAL_AUTH: "true"
-      SESSION_PATH: /usr/src/app/session
-      HEADLESS: "true"
-      PUPPETEER_DEVTOOLS: "false"
+    container_name: whatsapp-api
     ports:
       - "5000:5000"
-      - "6080:6080"
-    shm_size: '2gb'
-    restart: unless-stopped
     volumes:
-      - session-data:/usr/src/app/session
+      # 1. Map source code from host to container for easy updates (bind mount)
+      - ./:/app
+
+      # 2. Prevent host node_modules from overriding the container-installed modules
+      - /app/node_modules
+
+      # 3. Persist session/token data (kept for compatibility with session-based flows)
+      - whatsapp_sessions:/app/tokens
+
+    # Use the env file for runtime configuration
+    env_file:
+      - ./.env
+
+    # Provide extra capabilities similar to your venom compose
+    cap_add:
+      - SYS_ADMIN
+    restart: unless-stopped
+    # Use production start by default. For development you can override with `command: npm run dev`
+    command: node server.js
 
 volumes:
-  session-data:
+  whatsapp_sessions:

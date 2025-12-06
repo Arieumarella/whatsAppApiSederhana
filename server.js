@@ -1,17 +1,42 @@
+// Load environment variables from .env (optional). Install dotenv if not present.
+try {
+  require('dotenv').config();
+} catch (e) {
+  // dotenv not installed — it's optional if you set env vars externally
+}
+
 const express = require("express");
 const cors = require("cors");
 const qrcode = require("qrcode");
-const { Client, MessageMedia, NoAuth, LocalAuth } = require("whatsapp-web.js");
+const { Client, MessageMedia, NoAuth } = require("whatsapp-web.js");
 const multer = require("multer");
 const fetch = require("node-fetch");
-const fs = require("fs");
-const path = require("path");
 
 const app = express();
 app.use(express.json());
-// Enable CORS - allow all origins
-app.use(cors());
-app.options("*", cors());
+// Enable CORS. If ALLOWED_ORIGINS env is set (comma-separated), restrict to those origins.
+const allowedEnv = process.env.ALLOWED_ORIGINS;
+if (allowedEnv) {
+  const allowed = allowedEnv
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  app.use(
+    cors({
+      origin: function (origin, callback) {
+        // allow requests with no origin (e.g., server-to-server, mobile clients)
+        if (!origin) return callback(null, true);
+        if (allowed.indexOf(origin) !== -1) return callback(null, true);
+        return callback(new Error("Not allowed by CORS"));
+      },
+      credentials: true,
+    })
+  );
+  app.options("*", cors());
+} else {
+  // allow all origins by default (useful for local development)
+  app.use(cors());
+}
 
 const PORT = process.env.PORT || 5000;
 
@@ -80,155 +105,40 @@ async function createClient(sessionData = null) {
     qrDataUrl = null;
   }
 
-  // Puppeteer options can be controlled via env vars for debugging
-  const headlessEnv = process.env.HEADLESS;
-  const headless =
-    typeof headlessEnv === "string"
-      ? headlessEnv.toLowerCase() === "true"
-      : false; // Default false since container shows headless:false anyway
-  // Try explicit env path first, otherwise probe common Chromium/Chrome locations
-  function findChromium() {
-    // If puppeteer is installed in the image, prefer its executablePath()
-    try {
-      // eslint-disable-next-line global-require
-      const puppeteerPkg = require('puppeteer');
-      const p = puppeteerPkg.executablePath && puppeteerPkg.executablePath();
-      if (p) return p;
-    } catch (e) {
-      // ignore if puppeteer isn't installed
-    }
+  // Puppeteer options can be controlled via env vars. Support Venom-like names (WA_*)
+  const headlessEnv = process.env.WA_HEADLESS ?? process.env.HEADLESS;
+  const headless = typeof headlessEnv === "string" ? headlessEnv.toLowerCase() === "true" : true;
 
-    const candidates = [
-      process.env.PUPPETEER_EXECUTABLE_PATH,
-      "/usr/bin/chromium-browser",
-      "/usr/bin/chromium",
-      "/usr/bin/google-chrome-stable",
-      "/usr/bin/google-chrome",
-      "/snap/bin/chromium",
-    ];
-    for (const c of candidates) {
-      if (!c) continue;
-      try {
-        if (fs.existsSync(c)) return c;
-      } catch (e) {
-        // ignore
-      }
+  // Determine executable path: prefer explicit PUPPETEER_EXECUTABLE_PATH, else if WA_USE_CHROME=true try to use puppeteer executable
+  let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
+  const waUseChrome = (process.env.WA_USE_CHROME || process.env.USE_CHROME);
+  if (!executablePath && waUseChrome && waUseChrome.toString().toLowerCase() === "true") {
+    try {
+      const pu = require('puppeteer');
+      executablePath = typeof pu.executablePath === 'function' ? pu.executablePath() : pu.executablePath;
+    } catch (e) {
+      console.warn('WA_USE_CHROME requested but puppeteer is not available:', e && e.message ? e.message : e);
     }
-    return undefined;
   }
 
-  const executablePath = findChromium();
-  // Optional env to auto-open DevTools: PUPPETEER_DEVTOOLS=true
-  const devtoolsEnv = process.env.PUPPETEER_DEVTOOLS;
-  const devtools =
-    typeof devtoolsEnv === "string" ? devtoolsEnv.toLowerCase() === "true" : false;
-  // Optional extra args (comma-separated): PUPPETEER_ARGS="--no-sandbox,--disable-setuid-sandbox"
-  const argsEnv = process.env.PUPPETEER_ARGS;
-  const puppetArgs =
-    typeof argsEnv === "string" && argsEnv.trim()
-      ? argsEnv.split(",").map((s) => s.trim()).filter(Boolean)
-      : undefined;
+  // Optional env to auto-open DevTools: WA_DEVTOOLS or PUPPETEER_DEVTOOLS
+  const devtoolsEnv = process.env.WA_DEVTOOLS ?? process.env.PUPPETEER_DEVTOOLS;
+  const devtools = typeof devtoolsEnv === "string" ? devtoolsEnv.toLowerCase() === "true" : false;
 
-  // Use Venom-like default Puppeteer args (matches working configuration)
-  const defaultArgs = [
-    "--no-sandbox",
-    "--disable-setuid-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-gpu",
-    "--no-first-run",
-    "--no-zygote",
-    "--single-process",
-  ];
+  // Optional extra args (comma-separated): WA_PUPPETEER_ARGS or PUPPETEER_ARGS
+  const argsEnv = process.env.WA_PUPPETEER_ARGS ?? process.env.PUPPETEER_ARGS;
+  const puppetArgs = typeof argsEnv === "string" && argsEnv.trim() ? argsEnv.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
 
-  let options = { puppeteer: { headless, pipe: true } };
+  let options = { puppeteer: { headless } };
   if (executablePath) options.puppeteer.executablePath = executablePath;
   if (devtools) options.puppeteer.devtools = true;
-  // Merge user-provided args with defaults (honor single-process if present)
-  const mergedArgs = [];
-  const provided = Array.isArray(puppetArgs) ? puppetArgs : [];
-  mergedArgs.push(...defaultArgs);
-  for (const a of provided) if (!mergedArgs.includes(a)) mergedArgs.push(a);
-  if (mergedArgs.length) options.puppeteer.args = mergedArgs;
-
-  // Optional LocalAuth persistence (enable by setting USE_LOCAL_AUTH=true)
-  const useLocalAuthEnv = process.env.USE_LOCAL_AUTH;
-  const useLocalAuth = typeof useLocalAuthEnv === 'string' ? useLocalAuthEnv.toLowerCase() === 'true' : false;
-  let sessionPath = process.env.SESSION_PATH || './session';
-  // Resolve to absolute path inside container
-  try {
-    sessionPath = path.resolve(sessionPath);
-  } catch (e) {
-    // fallback to relative if resolve fails
-    sessionPath = './session';
-  }
+  if (puppetArgs && puppetArgs.length) options.puppeteer.args = puppetArgs;
 
   if (sessionData) {
     options.session = sessionData;
-  } else if (useLocalAuth) {
-    // Ensure session directory exists and is writable before passing to LocalAuth
-    try {
-      // create parent dir if needed
-      if (!fs.existsSync(sessionPath)) {
-        fs.mkdirSync(sessionPath, { recursive: true });
-        console.log('Created session directory:', sessionPath);
-      }
-      // quick writability check
-      const testFile = path.join(sessionPath, '.writetest');
-      try {
-        fs.writeFileSync(testFile, 'ok');
-        fs.unlinkSync(testFile);
-      } catch (werr) {
-        console.warn('Session path not writable, attempting chmod 0777:', sessionPath, werr && werr.message);
-        try {
-          fs.chmodSync(sessionPath, 0o777);
-        } catch (cerr) {
-          console.error('Failed to chmod session path:', cerr && cerr.message);
-          throw cerr || werr;
-        }
-      }
-
-      console.log('Using LocalAuth for session persistence. Data path:', sessionPath);
-      options.authStrategy = new LocalAuth({ clientId: 'whatsapp-api', dataPath: sessionPath });
-    } catch (err) {
-      console.error('Cannot use LocalAuth due to session path error, falling back to NoAuth. Error:', err && err.message);
-      options.authStrategy = new NoAuth();
-    }
   } else {
     // Use NoAuth so we don't persist or restore sessions automatically.
     options.authStrategy = new NoAuth();
-  }
-
-  // Ensure Chromium uses a dedicated user-data-dir to avoid "profile in use" errors.
-  try {
-    const userDataDir = path.join(sessionPath, 'chromium-user-data');
-    // create dir if missing
-    if (!fs.existsSync(userDataDir)) {
-      fs.mkdirSync(userDataDir, { recursive: true });
-      console.log('Created chromium user-data-dir:', userDataDir);
-    }
-    // Remove stale lock files that cause "profile in use" errors
-    const staleFiles = ['SingletonLock', 'SingletonSocket', 'SingletonCookie', 'lock', 'Lockfile'];
-    for (const f of staleFiles) {
-      const p = path.join(userDataDir, f);
-      try {
-        if (fs.existsSync(p)) {
-          fs.unlinkSync(p);
-          console.log('Removed stale profile lock file:', p);
-        }
-      } catch (e) {
-        // non-fatal
-      }
-    }
-
-    // Ensure puppeteer args include the user-data-dir and do not conflict with existing ones
-    const existingArgs = Array.isArray(options.puppeteer.args) ? options.puppeteer.args : [];
-    const udArg = `--user-data-dir=${userDataDir}`;
-    if (!existingArgs.find(a => a.startsWith('--user-data-dir='))) {
-      existingArgs.push(udArg);
-    }
-    options.puppeteer.args = existingArgs;
-  } catch (e) {
-    console.warn('Could not prepare chromium user-data-dir:', e && e.message);
   }
 
   console.log(
@@ -236,32 +146,26 @@ async function createClient(sessionData = null) {
     JSON.stringify({
       sessionProvided: !!sessionData,
       headless,
-      executablePath: executablePath || null,
+      executablePath: !!executablePath,
       devtools,
       puppetArgs: !!(puppetArgs && puppetArgs.length),
     })
   );
-  
-  // Log memory usage for debugging container resource issues
-  const memUsage = process.memoryUsage();
-  console.log("Memory usage (MB):", {
-    rss: Math.round(memUsage.rss / 1024 / 1024),
-    heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024),
-    heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024),
-    external: Math.round(memUsage.external / 1024 / 1024)
-  });
 
-  // Not using LocalAuth when NoAuth strategy is in use
-
-  // Instantiate client now so event listeners below attach to a valid object
   client = new Client(options);
+  // Not using LocalAuth when NoAuth strategy is in use
 
   client.on("qr", (qr) => {
     qrcode
       .toDataURL(qr)
       .then((url) => {
         qrDataUrl = url;
-        console.log("QR received, visit /qr to view");
+        const waLogQr = (process.env.WA_LOG_QR || process.env.LOG_QR);
+        if (waLogQr && waLogQr.toString().toLowerCase() === "true") {
+          console.log("QR received (dataURL available). Visit /qr to view.");
+        } else {
+          console.log("QR received (stored in memory) — visit /qr to view");
+        }
       })
       .catch((err) => console.error("QR toDataURL error", err));
   });
@@ -285,71 +189,7 @@ async function createClient(sessionData = null) {
     } catch (err) {
       console.log("Authenticated event (unable to stringify session)", err);
     }
-    // Session authenticated successfully
-    // Immediately attempt to verify the browser page / window.Store to detect why `ready` may not fire
-    (async () => {
-      try {
-        // If library exposes getState, call it
-        if (typeof client.getState === "function") {
-          try {
-            const st = await client.getState();
-            console.log("client.getState() =>", st);
-          } catch (gstErr) {
-            console.warn("client.getState() error:", gstErr && gstErr.message);
-          }
-        }
-
-        // Try to locate an active Puppeteer page and test for window.Store
-        let page = client.pupPage || null;
-        if (!page && client.pupBrowser && typeof client.pupBrowser.pages === "function") {
-          try {
-            const pages = await client.pupBrowser.pages();
-            page = pages && pages.length ? pages[0] : null;
-          } catch (pgErr) {
-            console.warn("Error getting pages from pupBrowser:", pgErr && pgErr.message);
-          }
-        }
-
-        if (page) {
-          try {
-            const hasStore = await page.evaluate(() => !!(window && window.Store));
-            console.log("Puppeteer page check: window.Store present =>", hasStore);
-            if (hasStore) {
-              // Consider client ready if Store is present
-              isReady = true;
-              qrDataUrl = null;
-              console.log("Verified window.Store on page — marking client as ready (temporary verification)");
-              if (client && client.info) console.log("Client info after auth verify:", JSON.stringify(client.info));
-            }
-          } catch (evalErr) {
-            console.warn("Error evaluating page for window.Store:", evalErr && evalErr.message);
-          }
-        } else {
-          console.warn("No Puppeteer page available to verify window.Store after authenticated");
-        }
-      } catch (err) {
-        console.warn("Post-auth verification failed:", err && err.message);
-      }
-    })();
-
-    // If ready event doesn't fire within 45s, force ready as last resort
-    setTimeout(() => {
-      if (!isReady && client) {
-        console.warn("Ready event did not fire after 45s. Forcing ready state as last resort.");
-        console.warn("Client may not be fully functional. If send fails, restart with /client/restart");
-        isReady = true;
-        qrDataUrl = null;
-      }
-    }, 45000);
-  });
-
-  // Log library internal state changes (helpful to see auth/connection transitions)
-  client.on('change_state', (state) => {
-    try {
-      console.log('Event: change_state ->', state);
-    } catch (e) {
-      console.log('change_state event', e && e.message);
-    }
+    // If LocalAuth is used, it handles persistence automatically. No manual write here.
   });
 
   // Additional auth-success listener (if emitted by library)
@@ -361,130 +201,29 @@ async function createClient(sessionData = null) {
     isReady = true;
     qrDataUrl = null;
     console.log("WhatsApp client ready");
-    // Log client info for verification
-    if (client && client.info) {
-      console.log("Client info:", JSON.stringify(client.info));
-    }
   });
 
   client.on("auth_failure", (msg) => {
     console.error("Auth failure:", msg);
-    console.error("This usually means QR scan failed or session is invalid.");
-    isReady = false;
-    qrDataUrl = null;
   });
 
   client.on("disconnected", (reason) => {
     console.log("Client disconnected:", reason);
-    console.log("Reason details:", JSON.stringify(reason));
     isReady = false;
     qrDataUrl = null;
-    // If disconnected unexpectedly, client may need to be recreated
-    if (client) {
-      console.log("Cleaning up disconnected client resources...");
-      try {
-        client.removeAllListeners && client.removeAllListeners();
-      } catch (e) {
-        console.error("Error removing listeners on disconnect:", e);
-      }
-    }
   });
 
-  async function initializeClientWithFallback(primaryClient, primaryOptions) {
-    try {
-      await primaryClient.initialize();
-      return true;
-    } catch (e) {
-      console.error("client.initialize error (primary)", e && e.stack ? e.stack : e);
-      // If protocol-level attach failed (Target closed), try fallback launch strategy
-      const msg = e && e.message ? e.message : "";
-      if (msg.includes("Target closed") || msg.includes("Target.setAutoAttach") || (e && e.name === 'ProtocolError')) {
-        console.warn("Puppeteer protocol attach failed, attempting fallback launch with remote debugging (non-pipe)");
-        try {
-          // Cleanup primary
-          try {
-            primaryClient.removeAllListeners && primaryClient.removeAllListeners();
-            await primaryClient.destroy();
-          } catch (cleanupErr) {
-            console.warn("Error cleaning up failed primary client:", cleanupErr && cleanupErr.message);
-          }
-
-          // Build fallback options safely (avoid JSON.stringify on objects that may contain circular refs)
-          const fallbackOptions = {
-            puppeteer: Object.assign({}, options.puppeteer || {}),
-          };
-          // preserve session if provided
-          if (options.session) fallbackOptions.session = options.session;
-          // Recreate authStrategy in a clean way to avoid circular LocalAuth internals
-          if (useLocalAuth) {
-            try {
-              fallbackOptions.authStrategy = new LocalAuth({ clientId: 'whatsapp-api', dataPath: sessionPath });
-            } catch (e) {
-              console.warn('Failed to create LocalAuth for fallback, falling back to NoAuth:', e && e.message);
-              fallbackOptions.authStrategy = new NoAuth();
-            }
-          } else {
-            fallbackOptions.authStrategy = new NoAuth();
-          }
-
-          if (!fallbackOptions.puppeteer) fallbackOptions.puppeteer = {};
-          fallbackOptions.puppeteer.pipe = false;
-          fallbackOptions.puppeteer.args = Array.isArray(fallbackOptions.puppeteer.args) ? fallbackOptions.puppeteer.args.slice() : [];
-          const extra = ["--remote-debugging-port=9222", "--enable-logging=stderr", "--v=1"];
-          for (const x of extra) if (!fallbackOptions.puppeteer.args.includes(x)) fallbackOptions.puppeteer.args.push(x);
-
-          // Create a new client instance with fallback options
-          const fallbackClient = new Client(fallbackOptions);
-
-          // Re-register minimal listeners to capture logs during fallback
-          fallbackClient.on("qr", (qr) => {
-            qrcode.toDataURL(qr).then((url) => { qrDataUrl = url; console.log("QR received (fallback), visit /qr to view"); }).catch((err)=>console.error("QR toDataURL error (fallback)", err));
-          });
-
-          try {
-            await fallbackClient.initialize();
-            // if succeed, replace global client
-            client = fallbackClient;
-            console.log("Fallback client initialized successfully (remote-debugging)");
-            return true;
-          } catch (fbErr) {
-            console.error("Fallback client initialize also failed:", fbErr && fbErr.stack ? fbErr.stack : fbErr);
-            try { fallbackClient.removeAllListeners && fallbackClient.removeAllListeners(); await fallbackClient.destroy(); } catch (xx) {}
-            return false;
-          }
-        } catch (outer) {
-          console.error("Error during fallback attempt:", outer && outer.stack ? outer.stack : outer);
-          return false;
-        }
-      }
-
-      return false;
-    }
+  try {
+    client.initialize();
+  } catch (e) {
+    console.error("client.initialize error", e);
   }
-
-  // attempt primary initialize, with fallback on specific protocol errors
-  (async () => {
-    const ok = await initializeClientWithFallback(client, options);
-    if (!ok) {
-      console.error("Failed to initialize WhatsApp client (both primary and fallback). Check Chromium installation and container flags.");
-    }
-  })();
 }
 
 // No session force-create helper needed in NoAuth mode.
 
 // NoAuth mode: do not restore sessions on startup. Client will be created on demand.
 console.log("NoAuth mode: not restoring sessions on startup; client will be created on demand when needed.");
-
-// Periodic health check - log client status every 60 seconds
-setInterval(() => {
-  if (client) {
-    console.log(`[Health Check] Client status - Ready: ${isReady}, Has client: ${!!client}`);
-    if (isReady && client.info) {
-      console.log(`[Health Check] Connected as: ${client.info.pushname || 'Unknown'} (${client.info.wid?.user || 'N/A'})`);
-    }
-  }
-}, 60000);
 
 app.get("/status", (req, res) => {
   res.json({ ready: isReady });
@@ -620,34 +359,6 @@ app.post("/client/restart", async (req, res) => {
     console.error("Restart client error", err);
     return res.status(500).json({ ok: false, error: err.toString() });
   }
-});
-
-// Diagnostic endpoint to help debug Puppeteer/Chromium availability
-app.get('/diagnose', (req, res) => {
-  const candidates = [
-    process.env.PUPPETEER_EXECUTABLE_PATH || null,
-    "/usr/bin/chromium-browser",
-    "/usr/bin/chromium",
-    "/usr/bin/google-chrome-stable",
-    "/usr/bin/google-chrome",
-    "/snap/bin/chromium",
-  ];
-  const candidateStatuses = candidates.map((p) => ({ path: p, exists: p ? !!fs.existsSync(p) : false }));
-
-  res.json({
-    env: {
-      HEADLESS: process.env.HEADLESS || null,
-      PUPPETEER_EXECUTABLE_PATH: process.env.PUPPETEER_EXECUTABLE_PATH || null,
-      PUPPETEER_ARGS: process.env.PUPPETEER_ARGS || null,
-      PUPPETEER_DEVTOOLS: process.env.PUPPETEER_DEVTOOLS || null,
-      USE_LOCAL_AUTH: process.env.USE_LOCAL_AUTH || null,
-    },
-    candidates: candidateStatuses,
-    chosenExecutable: (process.env.PUPPETEER_EXECUTABLE_PATH && fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) ? process.env.PUPPETEER_EXECUTABLE_PATH : (candidateStatuses.find(c=>c.exists)?.path || null),
-    memoryUsage: process.memoryUsage(),
-    clientPresent: !!client,
-    isReady: !!isReady,
-  });
 });
 
 // Multer setup for multipart uploads (in-memory)
