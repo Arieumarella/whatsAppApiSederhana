@@ -148,13 +148,46 @@ async function createClient(sessionData = null) {
   // Optional LocalAuth persistence (enable by setting USE_LOCAL_AUTH=true)
   const useLocalAuthEnv = process.env.USE_LOCAL_AUTH;
   const useLocalAuth = typeof useLocalAuthEnv === 'string' ? useLocalAuthEnv.toLowerCase() === 'true' : false;
-  const sessionPath = process.env.SESSION_PATH || './session';
+  let sessionPath = process.env.SESSION_PATH || './session';
+  // Resolve to absolute path inside container
+  try {
+    sessionPath = path.resolve(sessionPath);
+  } catch (e) {
+    // fallback to relative if resolve fails
+    sessionPath = './session';
+  }
 
   if (sessionData) {
     options.session = sessionData;
   } else if (useLocalAuth) {
-    console.log('Using LocalAuth for session persistence. Data path:', sessionPath);
-    options.authStrategy = new LocalAuth({ clientId: 'whatsapp-api', dataPath: sessionPath });
+    // Ensure session directory exists and is writable before passing to LocalAuth
+    try {
+      // create parent dir if needed
+      if (!fs.existsSync(sessionPath)) {
+        fs.mkdirSync(sessionPath, { recursive: true });
+        console.log('Created session directory:', sessionPath);
+      }
+      // quick writability check
+      const testFile = path.join(sessionPath, '.writetest');
+      try {
+        fs.writeFileSync(testFile, 'ok');
+        fs.unlinkSync(testFile);
+      } catch (werr) {
+        console.warn('Session path not writable, attempting chmod 0777:', sessionPath, werr && werr.message);
+        try {
+          fs.chmodSync(sessionPath, 0o777);
+        } catch (cerr) {
+          console.error('Failed to chmod session path:', cerr && cerr.message);
+          throw cerr || werr;
+        }
+      }
+
+      console.log('Using LocalAuth for session persistence. Data path:', sessionPath);
+      options.authStrategy = new LocalAuth({ clientId: 'whatsapp-api', dataPath: sessionPath });
+    } catch (err) {
+      console.error('Cannot use LocalAuth due to session path error, falling back to NoAuth. Error:', err && err.message);
+      options.authStrategy = new NoAuth();
+    }
   } else {
     // Use NoAuth so we don't persist or restore sessions automatically.
     options.authStrategy = new NoAuth();
