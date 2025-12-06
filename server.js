@@ -215,6 +215,9 @@ async function createClient(sessionData = null) {
 
   // Not using LocalAuth when NoAuth strategy is in use
 
+  // Instantiate client now so event listeners below attach to a valid object
+  client = new Client(options);
+
   client.on("qr", (qr) => {
     qrcode
       .toDataURL(qr)
@@ -348,8 +351,6 @@ async function createClient(sessionData = null) {
       }
     }
   });
-
-  client = new Client(options);
 
   async function initializeClientWithFallback(primaryClient, primaryOptions) {
     try {
