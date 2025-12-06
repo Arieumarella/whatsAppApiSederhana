@@ -6,6 +6,11 @@ try {
 }
 
 const express = require("express");
+const fs = require('fs');
+
+// Detect if running inside a container. This helps force headless mode in Docker
+const inDocker = (process.env.IN_DOCKER && process.env.IN_DOCKER.toString().toLowerCase() === 'true') || fs.existsSync('/.dockerenv');
+if (inDocker) console.log('Running inside Docker/container: forcing headless Puppeteer and disabling DevTools');
 const cors = require("cors");
 const qrcode = require("qrcode");
 const { Client, MessageMedia, NoAuth } = require("whatsapp-web.js");
@@ -91,7 +96,7 @@ async function createClient(sessionData = null) {
 
   // Puppeteer options can be controlled via env vars. Support Venom-like names (WA_*)
   const headlessEnv = process.env.WA_HEADLESS ?? process.env.HEADLESS;
-  const headless = typeof headlessEnv === "string" ? headlessEnv.toLowerCase() === "true" : true;
+  let headless = typeof headlessEnv === "string" ? headlessEnv.toLowerCase() === "true" : true;
 
   // Determine executable path: prefer explicit PUPPETEER_EXECUTABLE_PATH, else if WA_USE_CHROME=true try to use puppeteer executable
   let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
@@ -107,7 +112,7 @@ async function createClient(sessionData = null) {
 
   // Optional env to auto-open DevTools: WA_DEVTOOLS or PUPPETEER_DEVTOOLS
   const devtoolsEnv = process.env.WA_DEVTOOLS ?? process.env.PUPPETEER_DEVTOOLS;
-  const devtools = typeof devtoolsEnv === "string" ? devtoolsEnv.toLowerCase() === "true" : false;
+  let devtools = typeof devtoolsEnv === "string" ? devtoolsEnv.toLowerCase() === "true" : false;
 
   // Optional extra args (comma-separated): WA_PUPPETEER_ARGS or PUPPETEER_ARGS
   const argsEnv = process.env.WA_PUPPETEER_ARGS ?? process.env.PUPPETEER_ARGS;
@@ -117,6 +122,17 @@ async function createClient(sessionData = null) {
   if (executablePath) options.puppeteer.executablePath = executablePath;
   if (devtools) options.puppeteer.devtools = true;
   if (puppetArgs && puppetArgs.length) options.puppeteer.args = puppetArgs;
+
+  // If running inside Docker/container, force headless and disable devtools to avoid X server errors.
+  if (inDocker) {
+    options.puppeteer.headless = true;
+    options.puppeteer.devtools = false;
+    // ensure args include typical sandbox flags for container runs
+    const defaultArgs = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"];
+    options.puppeteer.args = Array.from(new Set([...(options.puppeteer.args || []), ...defaultArgs]));
+    headless = true;
+    devtools = false;
+  }
 
   if (sessionData) {
     options.session = sessionData;

@@ -18,6 +18,8 @@ services:
     # Use the env file for runtime configuration
     env_file:
       - ./.env
+    environment:
+      - IN_DOCKER=true
 
     # Provide extra capabilities similar to your venom compose
     cap_add:
