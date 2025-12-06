@@ -193,6 +193,39 @@ async function createClient(sessionData = null) {
     options.authStrategy = new NoAuth();
   }
 
+  // Ensure Chromium uses a dedicated user-data-dir to avoid "profile in use" errors.
+  try {
+    const userDataDir = path.join(sessionPath, 'chromium-user-data');
+    // create dir if missing
+    if (!fs.existsSync(userDataDir)) {
+      fs.mkdirSync(userDataDir, { recursive: true });
+      console.log('Created chromium user-data-dir:', userDataDir);
+    }
+    // Remove stale lock files that cause "profile in use" errors
+    const staleFiles = ['SingletonLock', 'SingletonSocket', 'SingletonCookie', 'lock', 'Lockfile'];
+    for (const f of staleFiles) {
+      const p = path.join(userDataDir, f);
+      try {
+        if (fs.existsSync(p)) {
+          fs.unlinkSync(p);
+          console.log('Removed stale profile lock file:', p);
+        }
+      } catch (e) {
+        // non-fatal
+      }
+    }
+
+    // Ensure puppeteer args include the user-data-dir and do not conflict with existing ones
+    const existingArgs = Array.isArray(options.puppeteer.args) ? options.puppeteer.args : [];
+    const udArg = `--user-data-dir=${userDataDir}`;
+    if (!existingArgs.find(a => a.startsWith('--user-data-dir='))) {
+      existingArgs.push(udArg);
+    }
+    options.puppeteer.args = existingArgs;
+  } catch (e) {
+    console.warn('Could not prepare chromium user-data-dir:', e && e.message);
+  }
+
   console.log(
     "createClient options:",
     JSON.stringify({
