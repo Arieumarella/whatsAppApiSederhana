@@ -31,6 +31,8 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 // QR data
 let qrBase64 = null;
+// readiness flag
+let isReady = false;
 
 // WhatsApp Client
 const client = new Client({
@@ -57,7 +59,21 @@ client.on("authenticated", () => {
 });
 
 client.on("ready", () => {
-    console.log("WhatsApp is ready!");
+  isReady = true;
+  qrBase64 = null;
+  console.log("WhatsApp is ready!");
+});
+
+client.on("auth_failure", (msg) => {
+  console.error("Auth failure:", msg);
+  isReady = false;
+  qrBase64 = null;
+});
+
+client.on("disconnected", (reason) => {
+  console.log("Client disconnected:", reason);
+  isReady = false;
+  qrBase64 = null;
 });
 
 client.initialize();
