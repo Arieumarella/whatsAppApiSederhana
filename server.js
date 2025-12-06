@@ -1,8 +1,9 @@
-import express from "express";
-import cors from "cors";
-import { Client, NoAuth, MessageMedia } from "whatsapp-web.js";
-import qrcode from "qrcode";
-import multer from "multer";
+const express = require('express');
+const cors = require('cors');
+const pkg = require('whatsapp-web.js');
+const { Client, NoAuth, MessageMedia } = pkg;
+const qrcode = require('qrcode');
+const multer = require('multer');
 
 const app = express();
 
