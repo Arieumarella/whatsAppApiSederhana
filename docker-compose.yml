@@ -1,24 +1,20 @@
-version: '3.8'
-
 services:
   app:
     build:
       context: .
       dockerfile: Dockerfile.novnc
-    # Don't load .env in container - it contains Windows-specific paths
-    # Container will use ENV vars set in Dockerfile.novnc
     environment:
-      # Enable LocalAuth to persist session to host (set to true to enable)
       USE_LOCAL_AUTH: "true"
-      # Path inside container where LocalAuth stores session (mounted below)
       SESSION_PATH: /usr/src/app/session
+      HEADLESS: "true"
+      PUPPETEER_DEVTOOLS: "false"
     ports:
       - "5000:5000"
-      - "6080:6080" # noVNC web UI
-    # No host volume mount by default so built image keeps its installed node_modules.
-    # Mounting the project directory from the host would hide node_modules installed during image build.
-    # Increase shared memory size for Chromium (default 64m is often too small)
+      - "6080:6080"
     shm_size: '2gb'
     restart: unless-stopped
     volumes:
-      - ./session:/usr/src/app/session
+      - session-data:/usr/src/app/session
+
+volumes:
+  session-data:

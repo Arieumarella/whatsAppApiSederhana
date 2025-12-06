@@ -1,25 +1,23 @@
-version: '3.8'
-
-# Override useful for local development when you want a headful browser
+# Development override: mount host project for live edits and enable headful browser
 services:
   app:
     environment:
       HEADLESS: "false"
       PUPPETEER_DEVTOOLS: "true"
-      # Pass through DISPLAY from host (set on your host or in .env)
       DISPLAY: ${DISPLAY:-:0}
       PUPPETEER_ARGS: "--no-sandbox,--disable-setuid-sandbox,--disable-gpu"
-    # On Linux (Ubuntu) it's helpful to run the container as the host user
-    # so X11 and file permissions work correctly. You can set LOCAL_UID and LOCAL_GID
-    # in your environment before starting compose (see instructions).
     user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
-    # Mount Xauthority to allow the container to connect to the X server
     volumes:
+      # Mount project for development (live code). Be aware this hides files copied into the image.
+      - ./:/app:rw
+      # Preserve container-installed node_modules (prevent host from overwriting)
+      - /app/node_modules
+      # Keep session in the named docker volume (avoid host permission issues)
+      - session-data:/app/session
+      # Mount X11 socket & Xauthority for host X forwarding (optional)
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
-      - ${XAUTHORITY:-/root/.Xauthority}:/home/node/.Xauthority:ro
-    # GPU device mapping disabled by default because many servers (VPS) don't expose /dev/dri.
-    # If your host has a DRM device and you want to pass it to the container for hardware
-    # acceleration, uncomment the following lines.
+      - ${XAUTHORITY:-/home/${USER}/.Xauthority}:/home/pptruser/.Xauthority:ro
+    # Uncomment devices if your host provides DRM device and you want hardware acceleration
     # devices:
     #   - /dev/dri:/dev/dri
     # If your Docker host requires additional privileges for GUI, you may add:

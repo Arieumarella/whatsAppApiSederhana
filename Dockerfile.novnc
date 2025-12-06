@@ -1,60 +1,47 @@
-# Dockerfile.novnc - Node + Chromium + Xvfb + x11vnc + noVNC
-FROM node:20-bullseye-slim
+# Dockerfile.novnc - Two-stage build based on Puppeteer official image
 
-ENV DEBIAN_FRONTEND=noninteractive
-WORKDIR /usr/src/app
+# --- Builder stage: install dependencies as non-root user ---
+FROM ghcr.io/puppeteer/puppeteer:latest AS builder
 
-# Install system deps, Chromium, Xvfb, fluxbox, x11vnc, python3-pip
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    chromium \
-    xvfb \
-    x11vnc \
-    x11-utils \
-    fluxbox \
-    python3-pip \
-    git \
-    wget \
-    supervisor \
-    fonts-liberation \
-    libasound2 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libx11-xcb1 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libgbm1 \
-    libnss3 \
-    libxss1 \
-    libsecret-1-0 \
-    libgtk-3-0 \
-    libpangocairo-1.0-0 \
-  && pip3 install --no-cache-dir websockify
+WORKDIR /app
 
-# Clone noVNC web client so websockify can serve it (allows http://host:6080)
-RUN git clone --depth 1 https://github.com/novnc/noVNC /usr/src/app/noVNC \
-  || (echo "warning: failed to clone noVNC" && true)
+# Use the pptruser that the puppeteer base image provides
+USER pptruser
 
-# Copy package manifests first for caching
-COPY package*.json ./
-RUN npm ci --only=production || npm install --production
+# Copy package manifests and install all deps (including dev if needed for build)
+COPY --chown=pptruser:pptruser package*.json ./
+RUN npm install
 
-# Add startup script BEFORE copying app source
-COPY start-novnc.sh /usr/local/bin/start-novnc.sh
-RUN chmod +x /usr/local/bin/start-novnc.sh
+# Copy application source
+COPY --chown=pptruser:pptruser . ./
 
-# Copy app source (will respect .dockerignore and exclude .env)
-COPY server.js ./
+# Run any build steps if necessary (kept generic)
+# e.g. RUN npm run build
 
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-# Use headless mode by default for better stability in resource-constrained containers
-ENV HEADLESS=true
+
+# --- Final image: lean runtime with puppeteer base ---
+FROM ghcr.io/puppeteer/puppeteer:latest
+
+WORKDIR /app
+
+# Use non-root user from puppeteer image
+USER pptruser
+
+# Copy production dependencies from builder
+COPY --chown=pptruser:pptruser --from=builder /app/node_modules ./node_modules
+COPY --chown=pptruser:pptruser --from=builder /app .
+
+# Ensure startup script exists and is executable
+COPY --chown=pptruser:pptruser start-novnc.sh /usr/local/bin/start-novnc.sh
+RUN chmod +x /usr/local/bin/start-novnc.sh || true
+
+# Environment defaults (can be overridden via docker-compose)
 ENV PUPPETEER_DEVTOOLS=false
-ENV PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage,--disable-accelerated-2d-canvas,--no-first-run,--no-zygote,--disable-gpu,--single-process
+ENV HEADLESS=true
 ENV DISPLAY=:1
+ENV USE_LOCAL_AUTH=true
+ENV SESSION_PATH=/app/session
+ENV PUPPETEER_ARGS="--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage,--disable-gpu,--no-first-run,--no-zygote,--single-process"
 
 EXPOSE 5000 6080
 

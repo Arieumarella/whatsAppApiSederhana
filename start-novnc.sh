@@ -33,8 +33,8 @@ X11VNC_PID=$!
 
 # Start websockify (noVNC) to expose VNC over WebSockets on port 6080
 echo "Starting websockify (noVNC bridge) on port 6080 -> localhost:5900"
-# Using websockify from pip
-websockify --web=/usr/src/app/noVNC 6080 localhost:5900 >/dev/null 2>&1 &
+# Using websockify from pip; noVNC lives in /app/noVNC in the new image layout
+websockify --web=/app/noVNC 6080 localhost:5900 >/dev/null 2>&1 &
 WEBSOCKIFY_PID=$!
 
 # Wait longer to ensure X server and desktop are fully ready

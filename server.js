@@ -88,6 +88,16 @@ async function createClient(sessionData = null) {
       : false; // Default false since container shows headless:false anyway
   // Try explicit env path first, otherwise probe common Chromium/Chrome locations
   function findChromium() {
+    // If puppeteer is installed in the image, prefer its executablePath()
+    try {
+      // eslint-disable-next-line global-require
+      const puppeteerPkg = require('puppeteer');
+      const p = puppeteerPkg.executablePath && puppeteerPkg.executablePath();
+      if (p) return p;
+    } catch (e) {
+      // ignore if puppeteer isn't installed
+    }
+
     const candidates = [
       process.env.PUPPETEER_EXECUTABLE_PATH,
       "/usr/bin/chromium-browser",
@@ -119,30 +129,25 @@ async function createClient(sessionData = null) {
       ? argsEnv.split(",").map((s) => s.trim()).filter(Boolean)
       : undefined;
 
-  // Provide safer default Puppeteer args for containers when none are given
+  // Use Venom-like default Puppeteer args (matches working configuration)
   const defaultArgs = [
     "--no-sandbox",
     "--disable-setuid-sandbox",
     "--disable-dev-shm-usage",
-    "--disable-extensions",
     "--disable-gpu",
     "--no-first-run",
-    "--no-default-browser-check",
-    "--disable-background-timer-throttling",
-    "--disable-renderer-backgrounding",
-    "--disable-features=site-per-process"
+    "--no-zygote",
+    "--single-process",
   ];
 
   let options = { puppeteer: { headless, pipe: true } };
   if (executablePath) options.puppeteer.executablePath = executablePath;
   if (devtools) options.puppeteer.devtools = true;
-  // Merge user-provided args with defaults, prefer user values but remove problematic flags
+  // Merge user-provided args with defaults (honor single-process if present)
   const mergedArgs = [];
   const provided = Array.isArray(puppetArgs) ? puppetArgs : [];
-  // Avoid single-process which is known to be unstable in containers
-  const filteredProvided = provided.filter((a) => a !== "--single-process");
   mergedArgs.push(...defaultArgs);
-  for (const a of filteredProvided) if (!mergedArgs.includes(a)) mergedArgs.push(a);
+  for (const a of provided) if (!mergedArgs.includes(a)) mergedArgs.push(a);
   if (mergedArgs.length) options.puppeteer.args = mergedArgs;
 
   // Optional LocalAuth persistence (enable by setting USE_LOCAL_AUTH=true)
