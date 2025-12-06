@@ -18,33 +18,9 @@ app.use(express.json());
 // 1) Allow-all mode: set ALLOW_ALL_ORIGINS=true OR ALLOWED_ORIGINS='*' -> allow all origins
 // 2) Restricted mode: set ALLOWED_ORIGINS to comma-separated origins -> only allow those
 // 3) Default: if none set, allow all origins (useful for local development)
-const allowedEnv = process.env.ALLOWED_ORIGINS;
-const allowAllEnv = (process.env.ALLOW_ALL_ORIGINS || process.env.CORS_ALLOW_ALL || "").toString().toLowerCase();
-const allowAll = allowAllEnv === "true" || allowedEnv === "*" || !allowedEnv;
 
-if (allowAll) {
-  // Allow all origins
-  app.use(cors());
-  app.options("*", cors());
-} else {
-  // Restrict to specified origins
-  const allowed = allowedEnv
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  app.use(
-    cors({
-      origin: function (origin, callback) {
-        // allow requests with no origin (e.g., server-to-server, mobile clients)
-        if (!origin) return callback(null, true);
-        if (allowed.indexOf(origin) !== -1) return callback(null, true);
-        return callback(new Error("Not allowed by CORS"));
-      },
-      credentials: true,
-    })
-  );
-  app.options("*", cors());
-}
+app.use(cors());
+app.options("*", cors());
 
 const PORT = process.env.PORT || 5000;
 
