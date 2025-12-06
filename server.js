@@ -14,9 +14,20 @@ const fetch = require("node-fetch");
 
 const app = express();
 app.use(express.json());
-// Enable CORS. If ALLOWED_ORIGINS env is set (comma-separated), restrict to those origins.
+// Enable CORS. There are three modes controlled by env vars:
+// 1) Allow-all mode: set ALLOW_ALL_ORIGINS=true OR ALLOWED_ORIGINS='*' -> allow all origins
+// 2) Restricted mode: set ALLOWED_ORIGINS to comma-separated origins -> only allow those
+// 3) Default: if none set, allow all origins (useful for local development)
 const allowedEnv = process.env.ALLOWED_ORIGINS;
-if (allowedEnv) {
+const allowAllEnv = (process.env.ALLOW_ALL_ORIGINS || process.env.CORS_ALLOW_ALL || "").toString().toLowerCase();
+const allowAll = allowAllEnv === "true" || allowedEnv === "*" || !allowedEnv;
+
+if (allowAll) {
+  // Allow all origins
+  app.use(cors());
+  app.options("*", cors());
+} else {
+  // Restrict to specified origins
   const allowed = allowedEnv
     .split(",")
     .map((s) => s.trim())
@@ -33,9 +44,6 @@ if (allowedEnv) {
     })
   );
   app.options("*", cors());
-} else {
-  // allow all origins by default (useful for local development)
-  app.use(cors());
 }
 
 const PORT = process.env.PORT || 5000;
