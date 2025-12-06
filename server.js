@@ -1,9 +1,11 @@
 const express = require("express");
 const cors = require("cors");
 const qrcode = require("qrcode");
-const { Client, MessageMedia, NoAuth } = require("whatsapp-web.js");
+const { Client, MessageMedia, NoAuth, LocalAuth } = require("whatsapp-web.js");
 const multer = require("multer");
 const fetch = require("node-fetch");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 app.use(express.json());
@@ -84,7 +86,28 @@ async function createClient(sessionData = null) {
     typeof headlessEnv === "string"
       ? headlessEnv.toLowerCase() === "true"
       : false; // Default false since container shows headless:false anyway
-  const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
+  // Try explicit env path first, otherwise probe common Chromium/Chrome locations
+  function findChromium() {
+    const candidates = [
+      process.env.PUPPETEER_EXECUTABLE_PATH,
+      "/usr/bin/chromium-browser",
+      "/usr/bin/chromium",
+      "/usr/bin/google-chrome-stable",
+      "/usr/bin/google-chrome",
+      "/snap/bin/chromium",
+    ];
+    for (const c of candidates) {
+      if (!c) continue;
+      try {
+        if (fs.existsSync(c)) return c;
+      } catch (e) {
+        // ignore
+      }
+    }
+    return undefined;
+  }
+
+  const executablePath = findChromium();
   // Optional env to auto-open DevTools: PUPPETEER_DEVTOOLS=true
   const devtoolsEnv = process.env.PUPPETEER_DEVTOOLS;
   const devtools =
@@ -96,13 +119,42 @@ async function createClient(sessionData = null) {
       ? argsEnv.split(",").map((s) => s.trim()).filter(Boolean)
       : undefined;
 
-  let options = { puppeteer: { headless } };
+  // Provide safer default Puppeteer args for containers when none are given
+  const defaultArgs = [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-extensions",
+    "--disable-gpu",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-background-timer-throttling",
+    "--disable-renderer-backgrounding",
+    "--disable-features=site-per-process"
+  ];
+
+  let options = { puppeteer: { headless, pipe: true } };
   if (executablePath) options.puppeteer.executablePath = executablePath;
   if (devtools) options.puppeteer.devtools = true;
-  if (puppetArgs && puppetArgs.length) options.puppeteer.args = puppetArgs;
+  // Merge user-provided args with defaults, prefer user values but remove problematic flags
+  const mergedArgs = [];
+  const provided = Array.isArray(puppetArgs) ? puppetArgs : [];
+  // Avoid single-process which is known to be unstable in containers
+  const filteredProvided = provided.filter((a) => a !== "--single-process");
+  mergedArgs.push(...defaultArgs);
+  for (const a of filteredProvided) if (!mergedArgs.includes(a)) mergedArgs.push(a);
+  if (mergedArgs.length) options.puppeteer.args = mergedArgs;
+
+  // Optional LocalAuth persistence (enable by setting USE_LOCAL_AUTH=true)
+  const useLocalAuthEnv = process.env.USE_LOCAL_AUTH;
+  const useLocalAuth = typeof useLocalAuthEnv === 'string' ? useLocalAuthEnv.toLowerCase() === 'true' : false;
+  const sessionPath = process.env.SESSION_PATH || './session';
 
   if (sessionData) {
     options.session = sessionData;
+  } else if (useLocalAuth) {
+    console.log('Using LocalAuth for session persistence. Data path:', sessionPath);
+    options.authStrategy = new LocalAuth({ clientId: 'whatsapp-api', dataPath: sessionPath });
   } else {
     // Use NoAuth so we don't persist or restore sessions automatically.
     options.authStrategy = new NoAuth();
@@ -113,7 +165,7 @@ async function createClient(sessionData = null) {
     JSON.stringify({
       sessionProvided: !!sessionData,
       headless,
-      executablePath: !!executablePath,
+      executablePath: executablePath || null,
       devtools,
       puppetArgs: !!(puppetArgs && puppetArgs.length),
     })
@@ -366,6 +418,34 @@ app.post("/client/restart", async (req, res) => {
     console.error("Restart client error", err);
     return res.status(500).json({ ok: false, error: err.toString() });
   }
+});
+
+// Diagnostic endpoint to help debug Puppeteer/Chromium availability
+app.get('/diagnose', (req, res) => {
+  const candidates = [
+    process.env.PUPPETEER_EXECUTABLE_PATH || null,
+    "/usr/bin/chromium-browser",
+    "/usr/bin/chromium",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/google-chrome",
+    "/snap/bin/chromium",
+  ];
+  const candidateStatuses = candidates.map((p) => ({ path: p, exists: p ? !!fs.existsSync(p) : false }));
+
+  res.json({
+    env: {
+      HEADLESS: process.env.HEADLESS || null,
+      PUPPETEER_EXECUTABLE_PATH: process.env.PUPPETEER_EXECUTABLE_PATH || null,
+      PUPPETEER_ARGS: process.env.PUPPETEER_ARGS || null,
+      PUPPETEER_DEVTOOLS: process.env.PUPPETEER_DEVTOOLS || null,
+      USE_LOCAL_AUTH: process.env.USE_LOCAL_AUTH || null,
+    },
+    candidates: candidateStatuses,
+    chosenExecutable: (process.env.PUPPETEER_EXECUTABLE_PATH && fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) ? process.env.PUPPETEER_EXECUTABLE_PATH : (candidateStatuses.find(c=>c.exists)?.path || null),
+    memoryUsage: process.memoryUsage(),
+    clientPresent: !!client,
+    isReady: !!isReady,
+  });
 });
 
 // Multer setup for multipart uploads (in-memory)

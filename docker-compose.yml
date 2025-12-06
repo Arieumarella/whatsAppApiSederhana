@@ -7,6 +7,11 @@ services:
       dockerfile: Dockerfile.novnc
     # Don't load .env in container - it contains Windows-specific paths
     # Container will use ENV vars set in Dockerfile.novnc
+    environment:
+      # Enable LocalAuth to persist session to host (set to true to enable)
+      USE_LOCAL_AUTH: "true"
+      # Path inside container where LocalAuth stores session (mounted below)
+      SESSION_PATH: /usr/src/app/session
     ports:
       - "5000:5000"
       - "6080:6080" # noVNC web UI
@@ -15,3 +20,5 @@ services:
     # Increase shared memory size for Chromium (default 64m is often too small)
     shm_size: '2gb'
     restart: unless-stopped
+    volumes:
+      - ./session:/usr/src/app/session
