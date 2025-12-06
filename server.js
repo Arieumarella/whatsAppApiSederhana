@@ -371,11 +371,27 @@ async function createClient(sessionData = null) {
             console.warn("Error cleaning up failed primary client:", cleanupErr && cleanupErr.message);
           }
 
-          // Build fallback options: disable pipe, enable remote debugging and extra logging
-          const fallbackOptions = JSON.parse(JSON.stringify(options));
+          // Build fallback options safely (avoid JSON.stringify on objects that may contain circular refs)
+          const fallbackOptions = {
+            puppeteer: Object.assign({}, options.puppeteer || {}),
+          };
+          // preserve session if provided
+          if (options.session) fallbackOptions.session = options.session;
+          // Recreate authStrategy in a clean way to avoid circular LocalAuth internals
+          if (useLocalAuth) {
+            try {
+              fallbackOptions.authStrategy = new LocalAuth({ clientId: 'whatsapp-api', dataPath: sessionPath });
+            } catch (e) {
+              console.warn('Failed to create LocalAuth for fallback, falling back to NoAuth:', e && e.message);
+              fallbackOptions.authStrategy = new NoAuth();
+            }
+          } else {
+            fallbackOptions.authStrategy = new NoAuth();
+          }
+
           if (!fallbackOptions.puppeteer) fallbackOptions.puppeteer = {};
           fallbackOptions.puppeteer.pipe = false;
-          fallbackOptions.puppeteer.args = fallbackOptions.puppeteer.args || [];
+          fallbackOptions.puppeteer.args = Array.isArray(fallbackOptions.puppeteer.args) ? fallbackOptions.puppeteer.args.slice() : [];
           const extra = ["--remote-debugging-port=9222", "--enable-logging=stderr", "--v=1"];
           for (const x of extra) if (!fallbackOptions.puppeteer.args.includes(x)) fallbackOptions.puppeteer.args.push(x);
 
