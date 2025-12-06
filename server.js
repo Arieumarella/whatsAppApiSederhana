@@ -246,6 +246,52 @@ async function createClient(sessionData = null) {
       console.log("Authenticated event (unable to stringify session)", err);
     }
     // Session authenticated successfully
+    // Immediately attempt to verify the browser page / window.Store to detect why `ready` may not fire
+    (async () => {
+      try {
+        // If library exposes getState, call it
+        if (typeof client.getState === "function") {
+          try {
+            const st = await client.getState();
+            console.log("client.getState() =>", st);
+          } catch (gstErr) {
+            console.warn("client.getState() error:", gstErr && gstErr.message);
+          }
+        }
+
+        // Try to locate an active Puppeteer page and test for window.Store
+        let page = client.pupPage || null;
+        if (!page && client.pupBrowser && typeof client.pupBrowser.pages === "function") {
+          try {
+            const pages = await client.pupBrowser.pages();
+            page = pages && pages.length ? pages[0] : null;
+          } catch (pgErr) {
+            console.warn("Error getting pages from pupBrowser:", pgErr && pgErr.message);
+          }
+        }
+
+        if (page) {
+          try {
+            const hasStore = await page.evaluate(() => !!(window && window.Store));
+            console.log("Puppeteer page check: window.Store present =>", hasStore);
+            if (hasStore) {
+              // Consider client ready if Store is present
+              isReady = true;
+              qrDataUrl = null;
+              console.log("Verified window.Store on page — marking client as ready (temporary verification)");
+              if (client && client.info) console.log("Client info after auth verify:", JSON.stringify(client.info));
+            }
+          } catch (evalErr) {
+            console.warn("Error evaluating page for window.Store:", evalErr && evalErr.message);
+          }
+        } else {
+          console.warn("No Puppeteer page available to verify window.Store after authenticated");
+        }
+      } catch (err) {
+        console.warn("Post-auth verification failed:", err && err.message);
+      }
+    })();
+
     // If ready event doesn't fire within 45s, force ready as last resort
     setTimeout(() => {
       if (!isReady && client) {
@@ -255,6 +301,15 @@ async function createClient(sessionData = null) {
         qrDataUrl = null;
       }
     }, 45000);
+  });
+
+  // Log library internal state changes (helpful to see auth/connection transitions)
+  client.on('change_state', (state) => {
+    try {
+      console.log('Event: change_state ->', state);
+    } catch (e) {
+      console.log('change_state event', e && e.message);
+    }
   });
 
   // Additional auth-success listener (if emitted by library)
