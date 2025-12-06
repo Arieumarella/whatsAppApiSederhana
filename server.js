@@ -34,70 +34,145 @@ let qrBase64 = null;
 // readiness flag
 let isReady = false;
 
-// WhatsApp Client
-const client = new Client({
+// WhatsApp Client (created on startup via createClientAndInit)
+let client = null;
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function createClientAndInit() {
+  // destroy previous client if exists
+  if (client) {
+    try {
+      client.removeAllListeners && client.removeAllListeners();
+      await client.destroy();
+      console.log('Previous client destroyed');
+    } catch (e) {
+      console.warn('Error destroying previous client before create:', e && e.message ? e.message : e);
+    }
+    client = null;
+    isReady = false;
+    qrBase64 = null;
+    // small delay to let resources settle
+    await sleep(300);
+  }
+
+  const options = {
     authStrategy: new NoAuth(),
     puppeteer: {
-        headless: true,
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium",
-        args: [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-gpu"
-        ]
+      headless: true,
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium",
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-gpu"
+      ]
     }
-});
+  };
 
-// --- WhatsApp Events ---
-client.on("qr", async (qr) => {
-    qrBase64 = await qrcode.toDataURL(qr);
+  client = new Client(options);
+
+  // --- WhatsApp Events ---
+  client.on("qr", async (qr) => {
+    try {
+      qrBase64 = await qrcode.toDataURL(qr);
+    } catch (e) {
+      console.error('QR toDataURL error', e);
+      qrBase64 = null;
+    }
     console.log("QR Received");
-});
+  });
 
-client.on("authenticated", () => {
+  client.on("authenticated", () => {
     console.log("Authenticated");
-});
+  });
 
-client.on("ready", () => {
-  isReady = true;
-  qrBase64 = null;
-  console.log("WhatsApp is ready!");
-});
+  client.on("ready", () => {
+    isReady = true;
+    qrBase64 = null;
+    console.log("WhatsApp is ready!");
+  });
 
-client.on("auth_failure", (msg) => {
-  console.error("Auth failure:", msg);
-  isReady = false;
-  qrBase64 = null;
-});
+  client.on("auth_failure", (msg) => {
+    console.error("Auth failure:", msg);
+    isReady = false;
+    qrBase64 = null;
+  });
 
-client.on("disconnected", (reason) => {
-  console.log("Client disconnected:", reason);
-  isReady = false;
-  qrBase64 = null;
-});
+  client.on("disconnected", (reason) => {
+    console.log("Client disconnected:", reason);
+    isReady = false;
+    qrBase64 = null;
+  });
 
-client.initialize();
+  try {
+    await client.initialize();
+  } catch (e) {
+    console.error('client.initialize error', e && e.message ? e.message : e);
+  }
+}
+
+// Do NOT create client on startup. Client will be created on-demand when /qr is requested.
 
 // --- ROUTES ---
 
 // 🔹 GET QR (RETURN JSON BASE64)
 app.get("/qr", (req, res) => {
-    if (!qrBase64) {
-        return res.json({ status: false, message: "QR belum tersedia" });
-    }
+    (async () => {
+      try {
+        // Always force recreate client to get a fresh QR
+        if (client) {
+          try {
+            client.removeAllListeners && client.removeAllListeners();
+            await client.destroy();
+            console.log('Destroyed existing client on /qr request to force new QR');
+          } catch (e) {
+            console.warn('Error destroying client on /qr:', e && e.message ? e.message : e);
+          }
+          client = null;
+          isReady = false;
+          qrBase64 = null;
+          await sleep(300);
+        }
 
-    return res.json({
-        status: true,
-        qr: qrBase64
-    });
+        // create a fresh client which will emit 'qr'
+        await createClientAndInit();
+
+        // if qr already set by event handler, return it
+        if (qrBase64) return res.json({ status: true, qr: qrBase64 });
+
+        // wait up to 20s for qr
+        const qr = await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            if (client) client.removeListener('qr', onQr);
+            reject(new Error('QR timeout'));
+          }, 20000);
+          function onQr(raw) {
+            clearTimeout(timeout);
+            // qrBase64 is set by handler; return it
+            resolve(qrBase64);
+          }
+          if (client) client.once('qr', onQr);
+          else {
+            clearTimeout(timeout);
+            reject(new Error('Client not initialized'));
+          }
+        });
+        return res.json({ status: true, qr });
+      } catch (err) {
+        console.error('Failed to force-create QR on /qr:', err && err.message ? err.message : err);
+        return res.status(500).json({ status: false, error: 'Failed to generate QR' });
+      }
+    })();
 });
 
 // 🔹 Check WhatsApp status
 app.get("/status", (req, res) => {
-    res.json({
-        ready: client.info ? true : false,
-        info: client.info || null
-    });
+  res.json({
+    ready: client && client.info ? true : false,
+    info: client ? client.info || null : null
+  });
 });
 
 // 🔹 Send text message
