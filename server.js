@@ -213,7 +213,6 @@ async function createClient(sessionData = null) {
     external: Math.round(memUsage.external / 1024 / 1024)
   });
 
-  client = new Client(options);
   // Not using LocalAuth when NoAuth strategy is in use
 
   client.on("qr", (qr) => {
@@ -350,11 +349,71 @@ async function createClient(sessionData = null) {
     }
   });
 
-  try {
-    client.initialize();
-  } catch (e) {
-    console.error("client.initialize error", e);
+  client = new Client(options);
+
+  async function initializeClientWithFallback(primaryClient, primaryOptions) {
+    try {
+      await primaryClient.initialize();
+      return true;
+    } catch (e) {
+      console.error("client.initialize error (primary)", e && e.stack ? e.stack : e);
+      // If protocol-level attach failed (Target closed), try fallback launch strategy
+      const msg = e && e.message ? e.message : "";
+      if (msg.includes("Target closed") || msg.includes("Target.setAutoAttach") || (e && e.name === 'ProtocolError')) {
+        console.warn("Puppeteer protocol attach failed, attempting fallback launch with remote debugging (non-pipe)");
+        try {
+          // Cleanup primary
+          try {
+            primaryClient.removeAllListeners && primaryClient.removeAllListeners();
+            await primaryClient.destroy();
+          } catch (cleanupErr) {
+            console.warn("Error cleaning up failed primary client:", cleanupErr && cleanupErr.message);
+          }
+
+          // Build fallback options: disable pipe, enable remote debugging and extra logging
+          const fallbackOptions = JSON.parse(JSON.stringify(options));
+          if (!fallbackOptions.puppeteer) fallbackOptions.puppeteer = {};
+          fallbackOptions.puppeteer.pipe = false;
+          fallbackOptions.puppeteer.args = fallbackOptions.puppeteer.args || [];
+          const extra = ["--remote-debugging-port=9222", "--enable-logging=stderr", "--v=1"];
+          for (const x of extra) if (!fallbackOptions.puppeteer.args.includes(x)) fallbackOptions.puppeteer.args.push(x);
+
+          // Create a new client instance with fallback options
+          const fallbackClient = new Client(fallbackOptions);
+
+          // Re-register minimal listeners to capture logs during fallback
+          fallbackClient.on("qr", (qr) => {
+            qrcode.toDataURL(qr).then((url) => { qrDataUrl = url; console.log("QR received (fallback), visit /qr to view"); }).catch((err)=>console.error("QR toDataURL error (fallback)", err));
+          });
+
+          try {
+            await fallbackClient.initialize();
+            // if succeed, replace global client
+            client = fallbackClient;
+            console.log("Fallback client initialized successfully (remote-debugging)");
+            return true;
+          } catch (fbErr) {
+            console.error("Fallback client initialize also failed:", fbErr && fbErr.stack ? fbErr.stack : fbErr);
+            try { fallbackClient.removeAllListeners && fallbackClient.removeAllListeners(); await fallbackClient.destroy(); } catch (xx) {}
+            return false;
+          }
+        } catch (outer) {
+          console.error("Error during fallback attempt:", outer && outer.stack ? outer.stack : outer);
+          return false;
+        }
+      }
+
+      return false;
+    }
   }
+
+  // attempt primary initialize, with fallback on specific protocol errors
+  (async () => {
+    const ok = await initializeClientWithFallback(client, options);
+    if (!ok) {
+      console.error("Failed to initialize WhatsApp client (both primary and fallback). Check Chromium installation and container flags.");
+    }
+  })();
 }
 
 // No session force-create helper needed in NoAuth mode.
