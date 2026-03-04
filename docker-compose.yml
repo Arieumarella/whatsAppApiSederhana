@@ -24,4 +24,10 @@ services:
       - SYS_ADMIN
 
     restart: unless-stopped
+    networks:
+      - api-jdih_jdih-network
     command: node server.js
+
+networks:
+  api-jdih_jdih-network:
+    external: true
