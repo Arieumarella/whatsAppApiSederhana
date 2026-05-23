@@ -25,3 +25,9 @@ services:
 
     restart: unless-stopped
     command: node server.js
+    networks:
+      - pos_network
+
+networks:
+  pos_network:
+    external: true
