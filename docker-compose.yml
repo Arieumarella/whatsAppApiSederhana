@@ -23,6 +23,8 @@ services:
     cap_add:
       - SYS_ADMIN
 
+    shm_size: '1gb'
+
     restart: unless-stopped
     command: node server.js
     networks:
